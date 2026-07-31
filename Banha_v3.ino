@@ -1,0 +1,270 @@
+/*
+  testing_display.ino
+  ESP32 + ILI9341 3.2" SPI (with XPT2046 resistive touch) running an
+  EEZ Studio LVGL v8 UI (main_screen / selection_screen / recording_screen).
+
+  BEFORE UPLOADING, install these libraries via Library Manager:
+    - TFT_eSPI            (Bodmer)      -> must be configured, see notes below
+    - lvgl                 version 8.4.x (NOT v9 - this project was exported for v8)
+    - XPT2046_Touchscreen  (Paul Stoffregen)
+
+  TFT_eSPI CONFIGURATION (one-time, required):
+    TFT_eSPI is configured at compile time via a "User_Setup.h" file inside
+    the library folder itself (Arduino/libraries/TFT_eSPI/User_Setup.h),
+    not in this sketch. Open that file and set it up for ILI9341 + ESP32, e.g.:
+
+      #define ILI9341_DRIVER
+      #define TFT_MISO 19
+      #define TFT_MOSI 23
+      #define TFT_SCLK 18
+      #define TFT_CS   15
+      #define TFT_DC    2
+      #define TFT_RST   4
+      #define SPI_FREQUENCY  40000000
+
+    Adjust the pin numbers to match how your ILI9341 module is actually wired
+    to your ESP32 dev board. If you tell me your exact wiring I can give you
+    the exact pins instead of these typical defaults.
+
+  TOUCH WIRING (XPT2046, shares the SPI bus with the display, separate CS):
+    T_CLK -> same as TFT_SCLK (18)
+    T_DIN -> same as TFT_MOSI (23)
+    T_DO  -> same as TFT_MISO (19)
+    T_CS  -> a free GPIO, set XPT2046_CS below (default 21)
+    T_IRQ -> optional, not required for polling mode
+*/
+
+#include <lvgl.h>
+#include <TFT_eSPI.h>
+#include <XPT2046_Touchscreen.h>
+#include <SPI.h>
+#include <Wire.h>
+#include <SensirionI2cScd4x.h>
+
+#include "ui.h"
+#include "vars.h"
+
+// ---------- Display ----------
+static const uint16_t SCREEN_W = 320;
+static const uint16_t SCREEN_H = 240;
+
+TFT_eSPI tft = TFT_eSPI();
+
+SensirionI2cScd4x scd4x;
+
+static lv_disp_draw_buf_t draw_buf;
+static lv_color_t buf1[SCREEN_W * 20];  // partial buffer, 20 lines tall
+
+// ---------- Touch ----------
+#define XPT2046_CS 27
+XPT2046_Touchscreen ts(XPT2046_CS);
+
+// Raw touch calibration - adjust these if touch coordinates feel off/inverted
+static const int TOUCH_MIN_X = 200;
+static const int TOUCH_MAX_X = 3700;
+static const int TOUCH_MIN_Y = 240;
+static const int TOUCH_MAX_Y = 3800;
+
+static void disp_flush(lv_disp_drv_t *disp, const lv_area_t *area, lv_color_t *color_p) {
+  uint32_t w = (area->x2 - area->x1 + 1);
+  uint32_t h = (area->y2 - area->y1 + 1);
+
+  tft.startWrite();
+  tft.setAddrWindow(area->x1, area->y1, w, h);
+  tft.pushColors((uint16_t *)&color_p->full, w * h, true);
+  tft.endWrite();
+
+  lv_disp_flush_ready(disp);
+}
+
+static void touch_read(lv_indev_drv_t *indev_drv, lv_indev_data_t *data) {
+  if (ts.touched()) {
+    TS_Point p = ts.getPoint();
+    int x = map(p.x, TOUCH_MIN_X, TOUCH_MAX_X, 0, SCREEN_W);
+    int y = map(p.y, TOUCH_MIN_Y, TOUCH_MAX_Y, 0, SCREEN_H);
+    x = constrain(x, 0, SCREEN_W - 1);
+    y = constrain(y, 0, SCREEN_H - 1);
+
+    data->state = LV_INDEV_STATE_PR;
+    data->point.x = x;
+    data->point.y = y;
+  } else {
+    data->state = LV_INDEV_STATE_REL;
+  }
+}
+// ---------- Demo sensor data + BANHA logic ----------
+static uint32_t last_sensor_update = 0;
+
+static void update_demo_sensor_values() {
+
+  bool dataReady = false;
+  uint16_t error;
+
+  error = scd4x.getDataReadyStatus(dataReady);
+
+  if (error) {
+    Serial.println("Data Ready Error");
+    return;
+  }
+
+  if (!dataReady) {
+    return;
+  }
+
+  uint16_t co2;
+  float temp;
+  float humidity;
+
+  error = scd4x.readMeasurement(co2, temp, humidity);
+
+  if (error) {
+    Serial.println("Read Error");
+    return;
+  }
+
+  // Round to 1 decimal place
+  temp = roundf(temp * 10.0f) / 10.0f;
+
+  // Replace with your real SEN0232 later
+  int32_t noise = 30;
+
+  // -----------------------
+  // Update GUI
+  // -----------------------
+
+  set_var_temp_value(temp);
+  set_var_co2_value(co2);
+  set_var_noise_value(noise);
+
+  // -----------------------
+  // Temperature
+  // -----------------------
+
+  if (temp < 22)
+    set_var_temp_status("POOR");
+  else if (temp < 23)
+    set_var_temp_status("MODERATE");
+  else if (temp <= 26)
+    set_var_temp_status("NORMAL");
+  else if (temp <= 27.1)
+    set_var_temp_status("MODERATE");
+  else
+    set_var_temp_status("POOR");
+
+  // -----------------------
+  // CO2
+  // -----------------------
+
+  if (co2 <= 1000)
+    set_var_co2_status("NORMAL");
+  else if (co2 <= 1500)
+    set_var_co2_status("MODERATE");
+  else
+    set_var_co2_status("POOR");
+
+  // -----------------------
+  // Noise
+  // -----------------------
+
+  if (noise <= 35)
+    set_var_noise_status("NORMAL");
+  else if (noise <= 55)
+    set_var_noise_status("MODERATE");
+  else
+    set_var_noise_status("POOR");
+
+  // -----------------------
+  // Serial Monitor
+  // -----------------------
+
+  Serial.println("----------------------");
+  Serial.print("CO2 : ");
+  Serial.print(co2);
+  Serial.println(" ppm");
+
+  Serial.print("Temp: ");
+  Serial.print(temp, 1);
+  Serial.println(" C");
+
+  Serial.print("RH  : ");
+  Serial.print(humidity);
+  Serial.println(" %");
+}
+
+void setup() {
+
+  Serial.begin(115200);
+  delay(1000);
+
+  // -----------------------------
+  // SCD41 Initialization
+  // -----------------------------
+  Wire.begin(21, 22);
+
+  scd4x.begin(Wire, 0x62);
+
+  uint16_t error;
+
+  Serial.println("Stopping previous measurement...");
+  error = scd4x.stopPeriodicMeasurement();
+  delay(500);
+
+  Serial.println("Starting SCD41...");
+  error = scd4x.startPeriodicMeasurement();
+
+  if (error) {
+    Serial.print("SCD41 Error: ");
+    Serial.println(error);
+    while (1)
+      ;
+  }
+
+  // -----------------------------
+  // TFT Display
+  // -----------------------------
+  tft.begin();
+  tft.setRotation(1);
+  tft.fillScreen(TFT_BLACK);
+
+  // -----------------------------
+  // Touch
+  // -----------------------------
+  ts.begin();
+  ts.setRotation(1);
+
+  // -----------------------------
+  // LVGL
+  // -----------------------------
+  lv_init();
+
+  lv_disp_draw_buf_init(&draw_buf, buf1, NULL, SCREEN_W * 20);
+
+  static lv_disp_drv_t disp_drv;
+  lv_disp_drv_init(&disp_drv);
+  disp_drv.hor_res = SCREEN_W;
+  disp_drv.ver_res = SCREEN_H;
+  disp_drv.flush_cb = disp_flush;
+  disp_drv.draw_buf = &draw_buf;
+  lv_disp_drv_register(&disp_drv);
+
+  static lv_indev_drv_t indev_drv;
+  lv_indev_drv_init(&indev_drv);
+  indev_drv.type = LV_INDEV_TYPE_POINTER;
+  indev_drv.read_cb = touch_read;
+  lv_indev_drv_register(&indev_drv);
+
+  // -----------------------------
+  // EEZ UI
+  // -----------------------------
+  ui_init();
+
+  Serial.println("UI Ready");
+}
+
+void loop() {
+  lv_tick_inc(5);
+  lv_timer_handler();
+  ui_tick();
+  update_demo_sensor_values();
+  delay(5);
+}
