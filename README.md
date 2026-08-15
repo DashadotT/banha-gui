@@ -34,8 +34,8 @@
 | --------- | ------ | ---------- |
 | VIN       | 3.3V   |            |
 | GND       | GND    |            |
-| SDA       | GPIO21 | SCD41 only |
-| SCL       | GPIO22 | SCD41 only |
+| SDA       | GPIO22 | SCD41 only |
+| SCL       | GPIO21 | SCD41 only |
 
 ---
 
