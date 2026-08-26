@@ -12,7 +12,7 @@
 | DC      | GPIO4  | TFT only             |
 | SCK     | GPIO18 | **Shared with LoRa** |
 | MOSI    | GPIO23 | **Shared with LoRa** |
-| MISO    | GPIO19 | **Shared with LoRa** |
+| MISO    |        | **No connection** |
 
 ---
 
@@ -52,20 +52,35 @@
 
 ---
 
-## LoRa RA-02 (SX1278)
+## LoRa RA-02 (SX1278) node 1
 
 | RA-02 Pin | ESP32  | Note                |
 | --------- | ------ | ------------------- |
 | VCC       | 3.3V   |                     |
 | GND       | GND    |                     |
 | SCK       | GPIO18 | **Shared with TFT** |
-| MISO      | GPIO19 | **Shared with TFT** |
+| MISO      | GPIO19 | LoRa only           |
 | MOSI      | GPIO23 | **Shared with TFT** |
 | NSS / CS  | GPIO13 | **LoRa only**       |
 | RESET     | GPIO32 | LoRa only           |
 | DIO0      | GPIO34 | LoRa only           |
 
 The shared SPI arrangement is intentional: SPI devices can share **SCK, MOSI, and MISO**, while each device has its own CS line. ([Espressif Systems][1])
+
+---
+
+## LoRa RA-02 (SX1278) node 2
+
+| RA-02 Pin | ESP32  | Note                |
+| --------- | ------ | ------------------- |
+| VCC       | 3.3V   |                     |
+| GND       | GND    |                     |
+| SCK       | GPIO23 | LoRa only           |
+| MISO      | GPIO19 | LoRa only           |
+| MOSI      | GPIO17 | LoRa only           |
+| NSS / CS  | GPIO16 | **LoRa only**       |
+| RESET     | GPIO14 | LoRa only           |
+| DIO0      | GPIO26 | LoRa only           |
 
 ---
 
