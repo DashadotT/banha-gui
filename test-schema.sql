@@ -1,6 +1,7 @@
 -- =============================================================================
 -- BANHA — SUPABASE DATABASE SCHEMA
--- UPDATED FOR NODE 2 + START/STOP RECORDING FLOW
+-- FINAL UPDATED SCHEMA
+-- NODE 2 + START/STOP RECORDING FLOW
 -- =============================================================================
 --
 -- FLOW:
@@ -96,6 +97,7 @@ create or replace function public.handle_new_user()
 returns trigger
 language plpgsql
 security definer
+set search_path = public
 as $$
 begin
 
@@ -126,7 +128,7 @@ on auth.users;
 create trigger on_auth_user_created
 after insert on auth.users
 for each row
-execute procedure public.handle_new_user();
+execute function public.handle_new_user();
 
 
 -- =============================================================================
@@ -160,9 +162,6 @@ on public.devices(node_number);
 
 -- =============================================================================
 -- RECORDINGS
---
--- Created when Node 2 receives:
--- NODE:1,TYPE:START
 -- =============================================================================
 
 create table if not exists public.recordings (
@@ -172,13 +171,10 @@ create table if not exists public.recordings (
     references public.devices(id)
     on delete set null,
 
-  -- Automatically set when Node 2 creates the recording
   started_at timestamptz not null default now(),
 
-  -- Automatically set by trigger when recording stops
   ended_at timestamptz,
 
-  -- Sent by Node 2 when STOP is received
   duration_seconds integer,
 
   status text not null default 'recording'
@@ -196,13 +192,11 @@ create table if not exists public.recordings (
 
   created_at timestamptz not null default now(),
 
-  -- End time cannot be before start time
   check (
     ended_at is null
     or ended_at >= started_at
   ),
 
-  -- Duration cannot be negative
   check (
     duration_seconds is null
     or duration_seconds >= 0
@@ -227,24 +221,15 @@ on public.recordings(started_at desc);
 
 -- =============================================================================
 -- AUTOMATICALLY SET ENDED_AT
---
--- When Node 2 changes:
---
--- recording -> pending_assessment
---
--- Supabase automatically saves:
---
--- ended_at = now()
 -- =============================================================================
 
 create or replace function public.set_recording_end_time()
 returns trigger
 language plpgsql
 security definer
+set search_path = public
 as $$
 begin
-
-  -- Only execute when a recording is being stopped
 
   if
     old.status = 'recording'
@@ -258,7 +243,6 @@ begin
     new.ended_at = now();
 
   end if;
-
 
   return new;
 
@@ -279,24 +263,7 @@ execute function public.set_recording_end_time();
 
 -- =============================================================================
 -- ENVIRONMENTAL READINGS
---
 -- One row per approximately 1-minute average.
---
--- PACKET NUMBERS:
---
--- Recording A:
--- Packet 1
--- Packet 2
--- Packet 3
---
--- Recording B:
--- Packet 1
--- Packet 2
--- Packet 3
---
--- This works because uniqueness is:
---
--- unique(recording_id, packet_number)
 -- =============================================================================
 
 create table if not exists public.environmental_readings (
@@ -328,8 +295,6 @@ create table if not exists public.environmental_readings (
 
   created_at timestamptz not null default now(),
 
-  -- Packet 1 can exist in multiple recordings,
-  -- but only once within the same recording.
   unique (
     recording_id,
     packet_number
@@ -419,7 +384,6 @@ on public.assessments(
 
 -- =============================================================================
 -- WHEN ASSESSMENT IS ADDED
---
 -- pending_assessment -> completed
 -- =============================================================================
 
@@ -427,6 +391,7 @@ create or replace function public.mark_recording_assessed()
 returns trigger
 language plpgsql
 security definer
+set search_path = public
 as $$
 begin
 
@@ -438,7 +403,6 @@ begin
   where
     id = new.recording_id
     and status = 'pending_assessment';
-
 
   return new;
 
@@ -504,8 +468,6 @@ insert into public.settings_options (
 )
 values
 
-  -- Subjects
-
   (
     'subject',
     'Information Management'
@@ -515,9 +477,6 @@ values
     'subject',
     'System Integration and Architecture'
   ),
-
-
-  -- Sections
 
   (
     'section',
@@ -533,9 +492,6 @@ values
     'section',
     'C'
   ),
-
-
-  -- Assessment Types
 
   (
     'assessment_type',
@@ -567,9 +523,7 @@ do nothing;
 -- =============================================================================
 -- TEST DEVICE
 --
--- MUST MATCH DEVICE_ID IN NODE 2:
---
--- 11111111-1111-1111-1111-111111111111
+-- MUST MATCH DEVICE_ID IN NODE 2
 -- =============================================================================
 
 insert into public.devices (
@@ -601,22 +555,17 @@ set
 alter table public.profiles
 enable row level security;
 
-
 alter table public.devices
 enable row level security;
-
 
 alter table public.recordings
 enable row level security;
 
-
 alter table public.environmental_readings
 enable row level security;
 
-
 alter table public.assessments
 enable row level security;
-
 
 alter table public.settings_options
 enable row level security;
@@ -624,8 +573,6 @@ enable row level security;
 
 -- =============================================================================
 -- REMOVE OLD POLICIES
---
--- This prevents errors when running the schema again.
 -- =============================================================================
 
 drop policy if exists "Authenticated users can view profiles"
@@ -672,212 +619,120 @@ on public.environmental_readings;
 -- AUTHENTICATED DASHBOARD POLICIES
 -- =============================================================================
 
-
--- Profiles
-
 create policy "Authenticated users can view profiles"
-
 on public.profiles
-
 for select
-
 to authenticated
-
 using (true);
 
 
 create policy "Users can update their own profile"
-
 on public.profiles
-
 for update
-
 to authenticated
-
 using (
   auth.uid() = id
 )
-
 with check (
   auth.uid() = id
 );
 
 
--- Devices
-
 create policy "Authenticated users can view devices"
-
 on public.devices
-
 for select
-
 to authenticated
-
 using (true);
 
 
--- Recordings
-
 create policy "Authenticated users can manage recordings"
-
 on public.recordings
-
 for all
-
 to authenticated
-
 using (true)
-
 with check (true);
 
-
--- Environmental readings
 
 create policy "Authenticated users can manage readings"
-
 on public.environmental_readings
-
 for all
-
 to authenticated
-
 using (true)
-
 with check (true);
 
-
--- Assessments
 
 create policy "Authenticated users can manage assessments"
-
 on public.assessments
-
 for all
-
 to authenticated
-
 using (true)
-
 with check (true);
 
 
--- Settings
-
 create policy "Authenticated users can manage settings options"
-
 on public.settings_options
-
 for all
-
 to authenticated
-
 using (true)
-
 with check (true);
 
 
 -- =============================================================================
 -- NODE 2 / ESP32 IOT POLICIES
 --
--- IMPORTANT:
---
 -- Node 2 uses the Supabase ANON/PUBLISHABLE key.
---
--- These policies allow:
---
--- START -> INSERT recordings
--- DATA  -> INSERT environmental_readings
--- STOP  -> UPDATE recordings
---
--- FOR TESTING PURPOSES.
 -- =============================================================================
 
-
--- IoT can view device
-
 create policy "IoT can view devices"
-
 on public.devices
-
 for select
-
 to anon
-
 using (true);
 
 
--- START
--- Allow Node 2 to create recording
+-- START -> Create recording
 
 create policy "IoT can create recordings"
-
 on public.recordings
-
 for insert
-
 to anon
-
 with check (true);
 
 
--- Allow Node 2 to retrieve recordings if needed
+-- Retrieve recording when needed
 
 create policy "IoT can view recordings"
-
 on public.recordings
-
 for select
-
 to anon
-
 using (true);
 
 
--- STOP
--- Allow Node 2 to update:
---
--- duration_seconds
--- status
---
--- Trigger automatically updates ended_at.
+-- STOP -> Update recording
 
 create policy "IoT can update recordings"
-
 on public.recordings
-
 for update
-
 to anon
-
 using (true)
-
 with check (true);
 
 
--- DATA
--- Allow Node 2 to insert environmental readings
+-- DATA -> Insert environmental readings
 
 create policy "IoT can insert readings"
-
 on public.environmental_readings
-
 for insert
-
 to anon
-
 with check (true);
 
 
--- Allow Node 2 to view readings during testing
+-- Testing / reading verification
 
 create policy "IoT can view readings"
-
 on public.environmental_readings
-
 for select
-
 to anon
-
 using (true);
 
 
@@ -885,25 +740,45 @@ using (true);
 -- REALTIME
 -- =============================================================================
 
--- These may already exist in the publication.
--- If you receive "already member of publication",
--- you can ignore that or remove these statements.
+do $$
+begin
 
-alter publication supabase_realtime
-add table public.environmental_readings;
+  begin
+    alter publication supabase_realtime
+    add table public.environmental_readings;
+  exception
+    when duplicate_object then
+      null;
+  end;
 
+  begin
+    alter publication supabase_realtime
+    add table public.recordings;
+  exception
+    when duplicate_object then
+      null;
+  end;
 
-alter publication supabase_realtime
-add table public.recordings;
+end;
+$$;
 
 
 -- =============================================================================
--- TEST VIEW
+-- RECORDING SUMMARY VIEW
 --
--- Makes it easy to see complete recording sessions.
+-- IMPORTANT:
+-- security_invoker = true means the view uses the permissions
+-- and RLS policies of the user querying it.
+--
+-- This fixes the Supabase "Security Definer View" warning.
 -- =============================================================================
 
-create or replace view public.recording_summary as
+drop view if exists public.recording_summary;
+
+
+create view public.recording_summary
+with (security_invoker = true)
+as
 
 select
 
