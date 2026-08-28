@@ -23,7 +23,7 @@
 
       AP:
       SSID: BANHA-SETUP
-      PASSWORD: 12345678
+      PASSWORD: banha@nbsc2026
       URL: http://192.168.4.1
 
       IMPORTANT:
@@ -40,6 +40,14 @@
       - Tries router connection in background
       - Times out after 15 seconds
       - Retries every 15 seconds
+
+   6. LIVE CONNECT-STATUS SCREEN
+
+      After the user submits new WiFi credentials, the
+      browser shows a "Connecting..." screen that polls
+      /status and reveals a green check (connected) or a
+      red X (failed / timed out), instead of a static
+      "Saved" message.
 
    ====================================================
 */
@@ -63,7 +71,7 @@ const char* AP_SSID =
   "BANHA-SETUP";
 
 const char* AP_PASSWORD =
-  "12345678";
+  "banha@nbsc2026";
 
 
 // =====================================================
@@ -543,39 +551,372 @@ bool ensureWiFi() {
 
 
 // =====================================================
-// HTML PAGE
+// SHARED HTML HEAD / STYLE
+//
+// Keeps a consistent modern look across the dashboard
+// and the connecting-status screen.
+// =====================================================
+
+String getSharedStyle() {
+
+  String css =
+    "<style>"
+
+    ":root{"
+    "--bg:#f1f5f9;"
+    "--card:#ffffff;"
+    "--text:#1e293b;"
+    "--muted:#64748b;"
+    "--border:#e2e8f0;"
+    "--primary:#15803d;"
+    "--primary-dark:#0f5c2c;"
+    "--danger:#dc2626;"
+    "--warn:#d97706;"
+    "--radius:16px;"
+    "}"
+
+    "*{box-sizing:border-box;}"
+
+    "body{"
+    "margin:0;"
+    "font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;"
+    "background:var(--bg);"
+    "color:var(--text);"
+    "-webkit-font-smoothing:antialiased;"
+    "}"
+
+    ".container{"
+    "max-width:640px;"
+    "margin:0 auto;"
+    "padding:24px 18px 40px;"
+    "}"
+
+    ".topbar{"
+    "text-align:center;"
+    "padding:8px 0 22px;"
+    "}"
+
+    ".topbar .logo{"
+    "display:inline-flex;"
+    "align-items:center;"
+    "justify-content:center;"
+    "width:52px;"
+    "height:52px;"
+    "border-radius:14px;"
+    "background:linear-gradient(135deg,#22c55e,var(--primary-dark));"
+    "color:white;"
+    "font-size:22px;"
+    "font-weight:800;"
+    "margin-bottom:10px;"
+    "box-shadow:0 6px 16px rgba(21,128,61,.25);"
+    "}"
+
+    ".topbar h1{"
+    "margin:0;"
+    "font-size:20px;"
+    "letter-spacing:.2px;"
+    "}"
+
+    ".topbar p{"
+    "margin:4px 0 0;"
+    "font-size:13px;"
+    "color:var(--muted);"
+    "}"
+
+    ".card{"
+    "background:var(--card);"
+    "padding:22px;"
+    "border-radius:var(--radius);"
+    "margin-bottom:18px;"
+    "border:1px solid var(--border);"
+    "box-shadow:0 1px 3px rgba(0,0,0,.04);"
+    "}"
+
+    ".card.center{"
+    "text-align:center;"
+    "padding:40px 24px;"
+    "}"
+
+    "h2{"
+    "font-size:15px;"
+    "text-transform:uppercase;"
+    "letter-spacing:.06em;"
+    "color:var(--muted);"
+    "margin:0 0 14px;"
+    "font-weight:700;"
+    "}"
+
+    ".status-row{"
+    "display:flex;"
+    "align-items:center;"
+    "justify-content:space-between;"
+    "gap:10px;"
+    "padding:11px 0;"
+    "border-bottom:1px solid var(--border);"
+    "}"
+
+    ".status-row:last-child{"
+    "border-bottom:none;"
+    "}"
+
+    ".status-label{"
+    "font-size:13px;"
+    "color:var(--muted);"
+    "font-weight:600;"
+    "}"
+
+    ".status-value{"
+    "font-size:14px;"
+    "font-weight:600;"
+    "text-align:right;"
+    "word-break:break-word;"
+    "max-width:60%;"
+    "}"
+
+    ".badge{"
+    "display:inline-flex;"
+    "align-items:center;"
+    "gap:6px;"
+    "font-size:13px;"
+    "font-weight:700;"
+    "padding:4px 10px;"
+    "border-radius:999px;"
+    "}"
+
+    ".badge.ok{"
+    "background:#dcfce7;"
+    "color:#15803d;"
+    "}"
+
+    ".badge.bad{"
+    "background:#fee2e2;"
+    "color:#dc2626;"
+    "}"
+
+    ".badge.warn{"
+    "background:#fef3c7;"
+    "color:#b45309;"
+    "}"
+
+    ".badge .dot{"
+    "width:7px;"
+    "height:7px;"
+    "border-radius:50%;"
+    "background:currentColor;"
+    "}"
+
+    "label{"
+    "display:block;"
+    "margin-top:16px;"
+    "font-weight:700;"
+    "font-size:13px;"
+    "color:var(--muted);"
+    "}"
+
+    "input{"
+    "width:100%;"
+    "padding:13px 14px;"
+    "margin-top:7px;"
+    "border:1.5px solid var(--border);"
+    "border-radius:10px;"
+    "font-size:16px;"
+    "background:#f8fafc;"
+    "transition:border-color .15s;"
+    "}"
+
+    "input:focus{"
+    "outline:none;"
+    "border-color:var(--primary);"
+    "background:white;"
+    "}"
+
+    ".password-wrap{"
+    "position:relative;"
+    "margin-top:7px;"
+    "}"
+
+    ".password-wrap input{"
+    "margin-top:0;"
+    "padding-right:46px;"
+    "}"
+
+    ".toggle-password{"
+    "position:absolute;"
+    "top:0;"
+    "right:2px;"
+    "height:100%;"
+    "width:42px;"
+    "display:flex;"
+    "align-items:center;"
+    "justify-content:center;"
+    "cursor:pointer;"
+    "color:var(--muted);"
+    "user-select:none;"
+    "}"
+
+    ".toggle-password svg{"
+    "width:20px;"
+    "height:20px;"
+    "pointer-events:none;"
+    "}"
+
+    "button,.button{"
+    "display:block;"
+    "width:100%;"
+    "padding:14px;"
+    "margin-top:22px;"
+    "background:var(--primary);"
+    "color:white;"
+    "border:none;"
+    "border-radius:10px;"
+    "font-size:16px;"
+    "font-weight:700;"
+    "cursor:pointer;"
+    "text-align:center;"
+    "text-decoration:none;"
+    "box-sizing:border-box;"
+    "transition:background .15s;"
+    "}"
+
+    "button:active,.button:active{"
+    "background:var(--primary-dark);"
+    "}"
+
+    ".small{"
+    "font-size:12.5px;"
+    "color:var(--muted);"
+    "line-height:1.5;"
+    "}"
+
+    ".steps p{"
+    "margin:10px 0;"
+    "font-size:14px;"
+    "}"
+
+    ".steps b{"
+    "color:var(--text);"
+    "}"
+
+    /* connecting screen */
+
+    ".spinner{"
+    "width:56px;"
+    "height:56px;"
+    "border:5px solid var(--border);"
+    "border-top-color:var(--primary);"
+    "border-radius:50%;"
+    "margin:0 auto 22px;"
+    "animation:spin .8s linear infinite;"
+    "}"
+
+    "@keyframes spin{"
+    "to{transform:rotate(360deg);}"
+    "}"
+
+    ".icon-circle{"
+    "width:64px;"
+    "height:64px;"
+    "border-radius:50%;"
+    "margin:0 auto 22px;"
+    "display:flex;"
+    "align-items:center;"
+    "justify-content:center;"
+    "}"
+
+    ".icon-circle.success{"
+    "background:#dcfce7;"
+    "}"
+
+    ".icon-circle.fail{"
+    "background:#fee2e2;"
+    "}"
+
+    ".icon-circle svg{"
+    "width:32px;"
+    "height:32px;"
+    "}"
+
+    ".card.center h2{"
+    "text-transform:none;"
+    "letter-spacing:0;"
+    "font-size:20px;"
+    "color:var(--text);"
+    "margin:0 0 8px;"
+    "}"
+
+    ".card.center p{"
+    "margin:0 0 4px;"
+    "font-size:14px;"
+    "color:var(--muted);"
+    "}"
+
+    "</style>";
+
+  return css;
+}
+
+
+// =====================================================
+// HTML PAGE : DASHBOARD
 // =====================================================
 
 String getDashboardHTML() {
 
-  String wifiStatus;
+  bool routerConnected =
+    (WiFi.status() == WL_CONNECTED);
 
 
-  if (WiFi.status() == WL_CONNECTED) {
+  String wifiBadge;
 
-    wifiStatus = "Connected";
+  if (routerConnected) {
+
+    wifiBadge =
+      "<span class='badge ok'><span class='dot'></span>Connected</span>";
 
   } else if (wifiConnectionAttempting) {
 
-    wifiStatus = "Connecting...";
+    wifiBadge =
+      "<span class='badge warn'><span class='dot'></span>Connecting...</span>";
 
   } else {
 
-    wifiStatus = "Disconnected";
+    wifiBadge =
+      "<span class='badge bad'><span class='dot'></span>Disconnected</span>";
   }
 
 
-  String recordingStatus;
+  String loraBadge =
+    loraReady
+      ? "<span class='badge ok'><span class='dot'></span>Ready</span>"
+      : "<span class='badge bad'><span class='dot'></span>Not Ready</span>";
 
 
-  if (isRecordingActive) {
+  String recordingBadge =
+    isRecordingActive
+      ? "<span class='badge warn'><span class='dot'></span>Recording</span>"
+      : "<span class='badge ok'><span class='dot'></span>Idle</span>";
 
-    recordingStatus = "RECORDING";
 
-  } else {
+  String supabaseBadgeClass = "ok";
 
-    recordingStatus = "IDLE";
+  if (
+    lastSupabaseStatus.indexOf("failed") != -1 || lastSupabaseStatus.indexOf("unavailable") != -1 || lastSupabaseStatus.indexOf("not found") != -1) {
+
+    supabaseBadgeClass = "bad";
+
+  } else if (
+    lastSupabaseStatus == "Waiting" || lastSupabaseStatus.indexOf("...") != -1 || lastSupabaseStatus.indexOf("Creating") != -1 || lastSupabaseStatus.indexOf("Uploading") != -1 || lastSupabaseStatus.indexOf("Stopping") != -1) {
+
+    supabaseBadgeClass = "warn";
   }
+
+
+  String supabaseBadge =
+    "<span class='badge "
+    + supabaseBadgeClass
+    + "'><span class='dot'></span>"
+    + lastSupabaseStatus
+    + "</span>";
 
 
   String html =
@@ -584,203 +925,109 @@ String getDashboardHTML() {
     "<head>"
     "<meta name='viewport' content='width=device-width, initial-scale=1'>"
     "<meta charset='UTF-8'>"
+    "<title>BANHA Node 2</title>"
+    + getSharedStyle() + "</head>"
 
-    "<title>BANHA Node 2 Setup</title>"
+                         "<body>"
 
-    "<style>"
+                         "<div class='container'>"
 
-    "*{box-sizing:border-box;}"
-
-    "body{"
-    "margin:0;"
-    "font-family:Arial,sans-serif;"
-    "background:#f1f5f9;"
-    "color:#1e293b;"
-    "}"
-
-    ".container{"
-    "max-width:650px;"
-    "margin:30px auto;"
-    "padding:20px;"
-    "}"
-
-    ".card{"
-    "background:white;"
-    "padding:25px;"
-    "border-radius:15px;"
-    "margin-bottom:20px;"
-    "box-shadow:0 4px 15px rgba(0,0,0,.08);"
-    "}"
-
-    "h1{"
-    "margin-top:0;"
-    "color:#15803d;"
-    "}"
-
-    "h2{"
-    "font-size:18px;"
-    "border-bottom:1px solid #e2e8f0;"
-    "padding-bottom:10px;"
-    "}"
-
-    ".status{"
-    "padding:12px;"
-    "background:#f8fafc;"
-    "border-radius:8px;"
-    "margin:8px 0;"
-    "word-break:break-word;"
-    "}"
-
-    "label{"
-    "display:block;"
-    "margin-top:15px;"
-    "font-weight:bold;"
-    "}"
-
-    "input{"
-    "width:100%;"
-    "padding:13px;"
-    "margin-top:6px;"
-    "border:1px solid #cbd5e1;"
-    "border-radius:8px;"
-    "font-size:16px;"
-    "}"
-
-    "button{"
-    "width:100%;"
-    "padding:14px;"
-    "margin-top:20px;"
-    "background:#15803d;"
-    "color:white;"
-    "border:none;"
-    "border-radius:8px;"
-    "font-size:16px;"
-    "font-weight:bold;"
-    "cursor:pointer;"
-    "}"
-
-    ".small{"
-    "font-size:13px;"
-    "color:#64748b;"
-    "}"
-
-    "</style>"
-    "</head>"
-
-    "<body>"
-
-    "<div class='container'>"
-
-    "<div class='card'>"
-
-    "<h1>BANHA Node 2</h1>"
-
-    "<p class='small'>"
-    "WiFi Configuration Dashboard"
-    "</p>"
+                         "<div class='topbar'>"
+                         "<div class='logo'>B2</div>"
+                         "<h1>BANHA Node 2</h1>"
+                         "<p>LoRa Receiver &amp; WiFi Configuration</p>"
+                         "</div>"
 
 
-    "<div class='status'>"
-    "<b>Setup WiFi:</b> "
-    + String(AP_SSID)
-    + "</div>"
+                         // ================================================
+                         // STATUS CARD
+                         // ================================================
 
+                         "<div class='card'>"
 
-      "<div class='status'>"
-      "<b>Setup IP:</b> "
-    + WiFi.softAPIP().toString()
-    + "</div>"
+                         "<h2>System Status</h2>"
 
+                         "<div class='status-row'>"
+                         "<span class='status-label'>Router WiFi</span>"
+                         "<span class='status-value'>"
+    + wifiBadge + "</span>"
+                  "</div>"
 
-      "<div class='status'>"
-      "<b>Router Status:</b> "
-    + wifiStatus
-    + "</div>"
-
-
-      "<div class='status'>"
-      "<b>Configured WiFi:</b> "
-    + (savedWiFiSSID.length() > 0
-         ? savedWiFiSSID
-         : String("None"))
-    + "</div>"
-
-
-      "<div class='status'>"
-      "<b>Connected SSID:</b> "
-    + (WiFi.status() == WL_CONNECTED
-         ? WiFi.SSID()
-         : String("None"))
-    + "</div>"
-
-
-      "<div class='status'>"
-      "<b>Router IP:</b> "
-    + (WiFi.status() == WL_CONNECTED
-         ? WiFi.localIP().toString()
-         : String("None"))
-    + "</div>"
-
-
-      "<div class='status'>"
-      "<b>LoRa:</b> "
-    + (loraReady
-         ? String("Ready")
-         : String("Not Ready"))
-    + "</div>"
-
-
-      "<div class='status'>"
-      "<b>Recording:</b> "
-    + recordingStatus
-    + "</div>"
-
-
-      "<div class='status'>"
-      "<b>Supabase:</b> "
-    + lastSupabaseStatus
-    + "</div>"
-
-
+                  "<div class='status-row'>"
+                  "<span class='status-label'>Configured Network</span>"
+                  "<span class='status-value'>"
+    + (savedWiFiSSID.length() > 0 ? savedWiFiSSID : String("None"))
+    + "</span>"
       "</div>"
 
+      "<div class='status-row'>"
+      "<span class='status-label'>Connected SSID</span>"
+      "<span class='status-value'>"
+    + (routerConnected ? WiFi.SSID() : String("&mdash;"))
+    + "</span>"
+      "</div>"
 
-      // ================================================
-      // WIFI FORM
-      // ================================================
+      "<div class='status-row'>"
+      "<span class='status-label'>Router IP</span>"
+      "<span class='status-value'>"
+    + (routerConnected ? WiFi.localIP().toString() : String("&mdash;"))
+    + "</span>"
+      "</div>"
 
-      "<div class='card'>"
+      "<div class='status-row'>"
+      "<span class='status-label'>Setup Hotspot</span>"
+      "<span class='status-value'>"
+    + String(AP_SSID) + " &middot; " + WiFi.softAPIP().toString() + "</span>"
+                                                                    "</div>"
 
-      "<h2>Change WiFi Configuration</h2>"
+                                                                    "<div class='status-row'>"
+                                                                    "<span class='status-label'>LoRa Radio</span>"
+                                                                    "<span class='status-value'>"
+    + loraBadge + "</span>"
+                  "</div>"
 
-      "<form action='/save' method='POST'>"
+                  "<div class='status-row'>"
+                  "<span class='status-label'>Recording</span>"
+                  "<span class='status-value'>"
+    + recordingBadge + "</span>"
+                       "</div>"
+
+                       "<div class='status-row'>"
+                       "<span class='status-label'>Supabase</span>"
+                       "<span class='status-value'>"
+    + supabaseBadge + "</span>"
+                      "</div>"
+
+                      "</div>"
 
 
-      "<label>WiFi Name (SSID)</label>"
+                      // ================================================
+                      // WIFI FORM
+                      // ================================================
 
-      "<input "
-      "type='text' "
-      "name='ssid' "
-      "autocomplete='off' "
-      "value='"
+                      "<div class='card'>"
+
+                      "<h2>Change WiFi Configuration</h2>"
+
+                      "<form id='wifiForm' action='/save' method='POST' onsubmit=\"return confirm('Save and connect to this WiFi network?');\">"
+
+                      "<label>WiFi Name (SSID)</label>"
+                      "<input type='text' name='ssid' autocomplete='off' value='"
     + savedWiFiSSID
-    + "' "
-      "required>"
-
+    + "' required>"
 
       "<label>WiFi Password</label>"
+      "<div class='password-wrap'>"
+      "<input type='password' id='wifiPassword' name='password' autocomplete='new-password' placeholder='Enter WiFi password'>"
+      "<span class='toggle-password' id='togglePasswordBtn' onclick='togglePassword()' role='button' tabindex='0' aria-label='Show password'>"
+      "<svg id='eyeIcon' viewBox='0 0 24 24' fill='none' xmlns='http://www.w3.org/2000/svg'>"
+      "<path d='M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/>"
+      "<circle cx='12' cy='12' r='3' stroke='currentColor' stroke-width='2'/>"
+      "</svg>"
+      "</span>"
+      "</div>"
 
-      "<input "
-      "type='password' "
-      "name='password' "
-      "autocomplete='new-password' "
-      "placeholder='Enter WiFi password'>"
-
-
-      "<button type='submit'>"
-      "Save and Connect"
-      "</button>"
-
+      "<button type='submit'>Save and Connect</button>"
 
       "</form>"
 
@@ -791,36 +1038,158 @@ String getDashboardHTML() {
       // INSTRUCTIONS
       // ================================================
 
-      "<div class='card'>"
+      "<div class='card steps'>"
 
-      "<h2>How to Access</h2>"
+      "<h2>How to Access Setup</h2>"
 
-      "<p>"
-      "1. Connect your phone to "
-      "<b>BANHA-SETUP</b>."
-      "</p>"
-
-      "<p>"
-      "2. Password: "
-      "<b>12345678</b>"
-      "</p>"
-
-      "<p>"
-      "3. Open "
-      "<b>192.168.4.1</b>"
-      "</p>"
+      "<p>1. Connect your phone or desktop to <b>BANHA-SETUP</b>.</p>"
+      "<p>2. Password: <b>banha@nbsc2026</b></p>"
+      "<p>3. Open <b>192.168.4.1</b> in your browser.</p>"
 
       "<p class='small'>"
-      "The BANHA-SETUP WiFi stays active even if the "
-      "configured router WiFi has wrong credentials."
+      "Stay connected with BANHA—because every breath, sound, "
+      "and degree matters in creating a better learning environment."
       "</p>"
 
       "</div>"
 
       "</div>"
+
+      "<script>"
+      "function togglePassword(){"
+      "var inp=document.getElementById('wifiPassword');"
+      "var icon=document.getElementById('eyeIcon');"
+      "var btn=document.getElementById('togglePasswordBtn');"
+      "if(inp.type==='password'){"
+      "inp.type='text';"
+      "icon.innerHTML=\"<path d='M17.94 17.94A10.94 10.94 0 0 1 12 20c-7 0-11-8-11-8a21.62 21.62 0 0 1 5.06-6.06M9.9 4.24A10.94 10.94 0 0 1 12 4c7 0 11 8 11 8a21.6 21.6 0 0 1-2.16 3.19M1 1l22 22' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/>\";"
+      "btn.setAttribute('aria-label','Hide password');"
+      "}else{"
+      "inp.type='password';"
+      "icon.innerHTML=\"<path d='M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/><circle cx='12' cy='12' r='3' stroke='currentColor' stroke-width='2'/>\";"
+      "btn.setAttribute('aria-label','Show password');"
+      "}"
+      "}"
+      "document.getElementById('togglePasswordBtn').addEventListener('keydown',function(e){"
+      "if(e.key==='Enter'||e.key===' '){e.preventDefault();togglePassword();}"
+      "});"
+      "</script>"
 
       "</body>"
       "</html>";
+
+
+  return html;
+}
+
+
+// =====================================================
+// HTML PAGE : CONNECTING / RESULT SCREEN
+//
+// Shown right after the form is submitted. Polls
+// /status in the background and swaps the spinner for
+// a green check (success) or red X (failure/timeout).
+// =====================================================
+
+String getConnectingHTML(String ssid) {
+
+  String html =
+    "<!DOCTYPE html>"
+    "<html>"
+    "<head>"
+    "<meta name='viewport' content='width=device-width, initial-scale=1'>"
+    "<meta charset='UTF-8'>"
+    "<title>Connecting - BANHA Node 2</title>"
+    + getSharedStyle() + "</head>"
+
+                         "<body>"
+
+                         "<div class='container'>"
+
+                         "<div class='topbar'>"
+                         "<div class='logo'>B2</div>"
+                         "<h1>BANHA Node 2</h1>"
+                         "</div>"
+
+                         "<div class='card center'>"
+
+                         "<div id='spinner' class='spinner'></div>"
+
+                         "<div id='iconSuccess' class='icon-circle success' style='display:none'>"
+                         "<svg viewBox='0 0 24 24' fill='none' xmlns='http://www.w3.org/2000/svg'>"
+                         "<path d='M5 13l4 4L19 7' stroke='#15803d' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'/>"
+                         "</svg>"
+                         "</div>"
+
+                         "<div id='iconFail' class='icon-circle fail' style='display:none'>"
+                         "<svg viewBox='0 0 24 24' fill='none' xmlns='http://www.w3.org/2000/svg'>"
+                         "<path d='M6 6l12 12M18 6L6 18' stroke='#dc2626' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'/>"
+                         "</svg>"
+                         "</div>"
+
+                         "<h2 id='title'>Connecting to WiFi...</h2>"
+                         "<p id='subtitle'>Attempting to join <b>"
+    + ssid + "</b></p>"
+             "<p class='small' id='detail'>This can take up to 15 seconds.</p>"
+
+             "<a href='/' id='backlink' class='button' style='display:none'>Return to Dashboard</a>"
+
+             "</div>"
+
+             "<p class='small' style='text-align:center'>"
+             "BANHA-SETUP hotspot remains available the whole time."
+             "</p>"
+
+             "</div>"
+
+             "<script>"
+             "var targetSSID="
+             "\""
+    + ssid + "\""
+             ";"
+             "var attempts=0;"
+             "var maxAttempts=22;"
+
+             "function showSuccess(data){"
+             "document.getElementById('spinner').style.display='none';"
+             "document.getElementById('iconSuccess').style.display='flex';"
+             "document.getElementById('title').textContent='Connected!';"
+             "document.getElementById('subtitle').innerHTML='Joined <b>'+data.ssid+'</b>';"
+             "document.getElementById('detail').textContent='IP address: '+data.ip+' \\u2014 redirecting to dashboard...';"
+             "document.getElementById('backlink').style.display='block';"
+             "document.getElementById('backlink').textContent='Return to Dashboard';"
+             "setTimeout(function(){window.location.href='/';},3000);"
+             "}"
+
+             "function showFail(){"
+             "document.getElementById('spinner').style.display='none';"
+             "document.getElementById('iconFail').style.display='flex';"
+             "document.getElementById('title').textContent='Connection Failed';"
+             "document.getElementById('subtitle').innerHTML='Could not connect to <b>'+targetSSID+'</b>';"
+             "document.getElementById('detail').textContent='Check the WiFi name and password, then try again. BANHA-SETUP remains available.';"
+             "document.getElementById('backlink').style.display='block';"
+             "document.getElementById('backlink').textContent='Try Again';"
+             "}"
+
+             "function poll(){"
+             "fetch('/status').then(function(r){return r.json();}).then(function(data){"
+             "if(data.wifi_connected){showSuccess(data);return;}"
+             "if(!data.wifi_connecting){showFail();return;}"
+             "attempts++;"
+             "if(attempts>maxAttempts){showFail();return;}"
+             "setTimeout(poll,1000);"
+             "}).catch(function(){"
+             "attempts++;"
+             "if(attempts>maxAttempts){showFail();return;}"
+             "setTimeout(poll,1000);"
+             "});"
+             "}"
+
+             "setTimeout(poll,1200);"
+             "</script>"
+
+             "</body>"
+             "</html>";
 
 
   return html;
@@ -898,44 +1267,17 @@ void handleSaveWiFi() {
 
 
   // ---------------------------------------------------
-  // SEND RESPONSE FIRST
+  // SEND THE LIVE-STATUS "CONNECTING..." PAGE FIRST
   //
   // This is important so the browser receives the
-  // response before WiFi operations start.
+  // response before WiFi operations start. The page
+  // itself polls /status and reveals a check or X icon.
   // ---------------------------------------------------
-
-  String response =
-    "<!DOCTYPE html>"
-    "<html>"
-    "<head>"
-    "<meta name='viewport' content='width=device-width, initial-scale=1'>"
-    "<meta charset='UTF-8'>"
-    "</head>"
-
-    "<body style='font-family:Arial;text-align:center;padding:40px;'>"
-
-    "<h2>WiFi Saved!</h2>"
-
-    "<p>Node 2 will now connect to:</p>"
-
-    "<h3>"
-    + newSSID
-    + "</h3>"
-
-      "<p>BANHA-SETUP remains available.</p>"
-
-      "<p>"
-      "<a href='/'>Return to Dashboard</a>"
-      "</p>"
-
-      "</body>"
-      "</html>";
-
 
   server.send(
     200,
     "text/html",
-    response);
+    getConnectingHTML(newSSID));
 
 
   // ---------------------------------------------------
