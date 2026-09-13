@@ -1,11 +1,44 @@
 /*
    ============================================================
-   BANHA LoRa Node 2 - UPDATED
+   BANHA LoRa Node 2 - v11 WITH SUPABASE RETRY
    RECEIVER + SUPABASE UPLOADER + WIFI WEB CONFIG
    Compatible with BANHA Node 1 v11
    ============================================================
 
-   LoRa protocol:
+   WHAT CHANGED FROM THE PREVIOUS "UPDATED" VERSION
+   ============================================================
+   All three Supabase HTTP calls - createRecordingInDatabase(),
+   uploadEnvironmentalData(), and stopRecordingInDatabase() -
+   previously gave up permanently on the FIRST failed attempt.
+   In practice this caused real, permanent data loss whenever
+   the ESP32's HTTPS/TLS connection to Supabase hiccuped
+   (commonly reported as HTTP Code: -1, a client-side
+   connection/timeout failure, not a server response).
+
+   FIX: a shared helper, supabaseRequest(), now retries up to
+   3 times with a short backoff (400ms, 800ms) whenever the
+   request fails for a TRANSIENT reason. A 409 (duplicate key
+   - e.g. the same packet_number already exists) is treated as
+   "handled, don't retry" rather than a failure, since retrying
+   a genuine duplicate can't ever succeed and isn't a real
+   problem - the data is already safely in the database.
+
+   Also increased HTTPClient's connect/response timeout from
+   the ~5s default to 8s, since ESP32 TLS handshakes to
+   Supabase can occasionally take longer than that, especially
+   later in a long-running session as heap fragments.
+
+   IMPORTANT CAVEAT (unchanged from before, just documented):
+   The LoRa ACK sent back to Node 1 confirms LoRa DELIVERY,
+   not Supabase SUCCESS - sendAck() runs before
+   handleStartCommand()/handleDataCommand()/handleStopCommand().
+   These retries make a Supabase failure much less likely, but
+   if all 3 attempts still fail, Node 1 will not know and will
+   not retry, since it already received its ACK. This is a
+   structural characteristic of the current protocol, not a bug
+   introduced by this file - flagging it here for visibility.
+
+   LoRa protocol (unchanged):
 
    START:
    NODE:1,TYPE:START,SEQ:1
@@ -145,6 +178,14 @@ bool loraReady = false;
 // ============================================================
 
 String lastSupabaseStatus = "Waiting";
+
+
+// ============================================================
+// SUPABASE RETRY SETTINGS
+// ============================================================
+
+const int SUPABASE_MAX_ATTEMPTS = 3;
+const unsigned long SUPABASE_HTTP_TIMEOUT_MS = 8000;
 
 
 // ============================================================
@@ -1106,6 +1147,101 @@ String extractRecordingId(
 
 
 // ============================================================
+// SUPABASE REQUEST WITH RETRY
+//
+// Shared helper for all three Supabase calls. Retries a
+// TRANSIENT failure (timeout, connection error, 5xx) up to
+// SUPABASE_MAX_ATTEMPTS times with a short backoff. A 409
+// (duplicate key) is returned immediately WITHOUT retrying,
+// since retrying a genuine duplicate can never succeed and
+// isn't an actual problem - the row is already there.
+//
+// method: "POST" or "PATCH"
+// includePreferHeader: adds "Prefer: return=representation"
+//   (used by create/stop, not by the DATA upload)
+// outHttpCode / outResponse: filled with the LAST attempt's
+//   result, whether it succeeded or all attempts failed.
+// ============================================================
+
+bool supabaseRequest(
+  const String& method,
+  const String& endpoint,
+  const String& payload,
+  bool includePreferHeader,
+  int& outHttpCode,
+  String& outResponse) {
+
+  outHttpCode = -1;
+  outResponse = "";
+
+  for (int attempt = 1; attempt <= SUPABASE_MAX_ATTEMPTS; attempt++) {
+
+    HTTPClient http;
+
+    http.setConnectTimeout(SUPABASE_HTTP_TIMEOUT_MS);
+    http.setTimeout(SUPABASE_HTTP_TIMEOUT_MS);
+
+    http.begin(endpoint);
+
+    http.addHeader("Content-Type", "application/json");
+    http.addHeader("apikey", SUPABASE_KEY);
+    http.addHeader("Authorization", String("Bearer ") + SUPABASE_KEY);
+
+    if (includePreferHeader) {
+      http.addHeader("Prefer", "return=representation");
+    }
+
+    int httpCode;
+
+    if (method == "POST") {
+      httpCode = http.POST(payload);
+    } else {
+      httpCode = http.sendRequest(method.c_str(), payload);
+    }
+
+    String response = http.getString();
+
+    http.end();
+
+    Serial.print("[Supabase attempt ");
+    Serial.print(attempt);
+    Serial.print("/");
+    Serial.print(SUPABASE_MAX_ATTEMPTS);
+    Serial.print("] HTTP Code: ");
+    Serial.println(httpCode);
+
+    Serial.print("Response: ");
+    Serial.println(response);
+
+    outHttpCode = httpCode;
+    outResponse = response;
+
+    // Success.
+    if (httpCode >= 200 && httpCode < 300) {
+      return true;
+    }
+
+    // Duplicate key - not transient, don't retry, treat as
+    // "already handled" so callers don't log it as a failure.
+    if (httpCode == 409) {
+      Serial.println("[Supabase] 409 duplicate - treating as already handled, not retrying.");
+      return true;
+    }
+
+    // Any other failure (including -1 connection errors) is
+    // treated as transient and worth retrying.
+    if (attempt < SUPABASE_MAX_ATTEMPTS) {
+      Serial.println("[Supabase] Transient failure, retrying shortly...");
+      delay(400 * attempt);  // 400ms, then 800ms
+    }
+  }
+
+  Serial.println("[Supabase] All retry attempts exhausted.");
+  return false;
+}
+
+
+// ============================================================
 // CREATE RECORDING
 // ============================================================
 
@@ -1132,26 +1268,6 @@ bool createRecordingInDatabase() {
   String endpoint =
     String(SUPABASE_URL) + "/rest/v1/recordings";
 
-  HTTPClient http;
-
-  http.begin(endpoint);
-
-  http.addHeader(
-    "Content-Type",
-    "application/json");
-
-  http.addHeader(
-    "apikey",
-    SUPABASE_KEY);
-
-  http.addHeader(
-    "Authorization",
-    String("Bearer ") + SUPABASE_KEY);
-
-  http.addHeader(
-    "Prefer",
-    "return=representation");
-
   String payload = "{";
 
   payload +=
@@ -1174,28 +1290,18 @@ bool createRecordingInDatabase() {
   Serial.println(
     payload);
 
-  int httpCode =
-    http.POST(payload);
+  int httpCode;
+  String response;
 
-  String response =
-    http.getString();
-
-  Serial.print(
-    "HTTP Code: ");
-
-  Serial.println(
-    httpCode);
-
-  Serial.print(
-    "Response: ");
-
-  Serial.println(
+  bool ok = supabaseRequest(
+    "POST",
+    endpoint,
+    payload,
+    true,
+    httpCode,
     response);
 
-  http.end();
-
-  if (
-    httpCode < 200 || httpCode >= 300) {
+  if (!ok) {
 
     lastSupabaseStatus =
       "Create failed: HTTP " + String(httpCode);
@@ -1268,22 +1374,6 @@ bool uploadEnvironmentalData() {
   String endpoint =
     String(SUPABASE_URL) + "/rest/v1/environmental_readings";
 
-  HTTPClient http;
-
-  http.begin(endpoint);
-
-  http.addHeader(
-    "Content-Type",
-    "application/json");
-
-  http.addHeader(
-    "apikey",
-    SUPABASE_KEY);
-
-  http.addHeader(
-    "Authorization",
-    String("Bearer ") + SUPABASE_KEY);
-
   String payload = "{";
 
   payload +=
@@ -1313,34 +1403,26 @@ bool uploadEnvironmentalData() {
   Serial.println(
     payload);
 
-  int httpCode =
-    http.POST(payload);
+  int httpCode;
+  String response;
 
-  String response =
-    http.getString();
-
-  Serial.print(
-    "HTTP Code: ");
-
-  Serial.println(
-    httpCode);
-
-  Serial.print(
-    "Response: ");
-
-  Serial.println(
+  bool ok = supabaseRequest(
+    "POST",
+    endpoint,
+    payload,
+    false,
+    httpCode,
     response);
 
-  http.end();
-
-  if (
-    httpCode >= 200 && httpCode < 300) {
+  if (ok) {
 
     lastSupabaseStatus =
-      "Reading uploaded";
+      (httpCode == 409)
+        ? "Reading already exists (dup)"
+        : "Reading uploaded";
 
     Serial.println(
-      "SUPABASE: READING UPLOADED!");
+      "SUPABASE: READING UPLOADED (or already existed)!");
 
     return true;
   }
@@ -1349,7 +1431,7 @@ bool uploadEnvironmentalData() {
     "Upload failed: HTTP " + String(httpCode);
 
   Serial.println(
-    "SUPABASE: UPLOAD FAILED!");
+    "SUPABASE: UPLOAD FAILED after retries!");
 
   return false;
 }
@@ -1396,26 +1478,6 @@ bool stopRecordingInDatabase() {
   String endpoint =
     String(SUPABASE_URL) + "/rest/v1/recordings?id=eq." + currentRecordingId;
 
-  HTTPClient http;
-
-  http.begin(endpoint);
-
-  http.addHeader(
-    "Content-Type",
-    "application/json");
-
-  http.addHeader(
-    "apikey",
-    SUPABASE_KEY);
-
-  http.addHeader(
-    "Authorization",
-    String("Bearer ") + SUPABASE_KEY);
-
-  http.addHeader(
-    "Prefer",
-    "return=representation");
-
   String payload = "{";
 
   payload +=
@@ -1426,30 +1488,18 @@ bool stopRecordingInDatabase() {
 
   payload += "}";
 
-  int httpCode =
-    http.sendRequest(
-      "PATCH",
-      payload);
+  int httpCode;
+  String response;
 
-  String response =
-    http.getString();
-
-  Serial.print(
-    "HTTP Code: ");
-
-  Serial.println(
-    httpCode);
-
-  Serial.print(
-    "Response: ");
-
-  Serial.println(
+  bool ok = supabaseRequest(
+    "PATCH",
+    endpoint,
+    payload,
+    true,
+    httpCode,
     response);
 
-  http.end();
-
-  if (
-    httpCode >= 200 && httpCode < 300) {
+  if (ok) {
 
     lastSupabaseStatus =
       "Recording stopped";
@@ -1464,7 +1514,7 @@ bool stopRecordingInDatabase() {
     "Stop failed: HTTP " + String(httpCode);
 
   Serial.println(
-    "SUPABASE: STOP FAILED!");
+    "SUPABASE: STOP FAILED after retries!");
 
   return false;
 }
@@ -1768,7 +1818,7 @@ void handleDataCommand(
   } else {
 
     Serial.println(
-      "DATA upload failed.");
+      "DATA upload failed after retries. This reading is lost.");
   }
 }
 
@@ -1926,6 +1976,12 @@ void handleLoRaMessage(
 
   // ----------------------------------------------------------
   // ACK FIRST
+  //
+  // NOTE: this confirms LoRa DELIVERY only. The Supabase
+  // write happens after this and now includes its own
+  // retry logic (see supabaseRequest()), but if all
+  // retries there still fail, Node 1 will not know, since
+  // it already received this ACK. See file header notes.
   // ----------------------------------------------------------
 
   bool ackSent =
@@ -2038,6 +2094,10 @@ bool initializeLoRa() {
 
   // ----------------------------------------------------------
   // SPI
+  //
+  // Node 2 has no TFT/touch, so LoRa is the only SPI
+  // device on this board - VSPI here is fine, no bus
+  // sharing conflict (unlike Node 1).
   // ----------------------------------------------------------
 
   SPI.begin(
@@ -2163,7 +2223,7 @@ void setup() {
     "LoRa + Supabase + WiFi");
 
   Serial.println(
-    "UPDATED VERSION");
+    "v11 WITH SUPABASE RETRY");
 
   Serial.println(
     "========================================");
