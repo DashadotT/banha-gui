@@ -6,7 +6,7 @@
 |---|---|---|
 | VCC | 5V* | |
 | GND | GND | |
-| LED | 5V* | |
+| LED | 3V* | |
 | CS | GPIO15 | TFT only |
 | RESET | GPIO2 | TFT only |
 | DC | GPIO4 | TFT only |
