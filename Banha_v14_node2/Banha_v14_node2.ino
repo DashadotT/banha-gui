@@ -107,11 +107,11 @@ const unsigned long WIFI_RECONNECT_INTERVAL = 15000;
 // ============================================================
 
 const char* SUPABASE_URL =
-  "https://xjacclekwgmcqerydwss.supabase.co";
+  "https://iulprlcradavbrdqpkzg.supabase.co";
 
 // ANON / PUBLISHABLE KEY
 const char* SUPABASE_KEY =
-  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhqYWNjbGVrd2dtY3Flcnlkd3NzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTE2MTYwNzYsImV4cCI6MjEwNzE5MjA3Nn0.eAsfGF0UiY18LyjcSoOdI8TFaSlf9ptKmZ4jV0mhY60";
+  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Iml1bHBybGNyYWRhdmJyZHFwa3pnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODk2NDkyNTIsImV4cCI6MjEwNTIyNTI1Mn0.JvG7ZMp9OzAn6cn1CEj382elTbMB4TgdSqoQ6R-Hccs";
 
 
 // ============================================================
