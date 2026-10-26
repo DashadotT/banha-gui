@@ -1758,7 +1758,7 @@ bool finalizeNoiseReading() {
     MIC_OFFSET_DB
     + MIC_REF_DB
     + 20.0 * log10(rms / MIC_REF_AMPL);
-
+    + MIC_CALIBRATION_CORRECTION_DB;
 
   if (isnan(dBA) || isinf(dBA)) {
 
